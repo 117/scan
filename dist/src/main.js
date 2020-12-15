@@ -53,15 +53,15 @@ yargs_1.default(process.argv.slice(2)).command('$0', '...', (argv) => argv
     pages = 750, 
     // @ts-ignore
     line = console.draft('please wait');
-    await Promise.allSettled([...Array(pages + 1).keys()].slice(1).map((_, page) => got_1.default(`https://api.polygon.io/v2/reference/tickers?sort=ticker&locale=us&perpage=50&market=stocks&active=true&page=${page}&apiKey=${argv['polygon-key']}`).then((response) => {
-        tickers.push(...JSON.parse(response.body)['tickers']),
-            line(`got ${tickers.length} tickers`);
-    })));
+    await got_1.default(`https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers?apiKey=${argv['polygon-key']}`).then((response) => {
+        tickers.push(...JSON.parse(response.body)['tickers']);
+        line(`got ${tickers.length} tickers`);
+    });
     // filter out shit-ass tickers
     let symbols = tickers
         .map((ticker) => ticker.ticker)
         .filter((symbol) => symbol.length < 5 && !symbol.includes('.') && !symbol.includes('-'));
-    console.log(`using ${symbols.length} symbols`);
+    console.log(`got ${symbols.length} symbols`);
     console.log('connecting to websocket');
     const websocket = new ws_1.default('wss://socket.polygon.io/stocks');
     console.log('done');
