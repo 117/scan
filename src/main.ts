@@ -9,45 +9,10 @@ import parseDuration from 'parse-duration'
 import draftlog from 'draftlog'
 import WebSocket from 'ws'
 
-import { default as Decimal } from 'decimal.js'
+import { Trade } from './trade'
+import { Ticker } from './ticker'
 
-const DraftLog = draftlog.into(console)
-
-enum Alert {
-  GAP_UP,
-  GAP_DOWN,
-}
-
-interface Ticker {
-  ticker: string
-  name: string
-  market: string
-  locale: string
-  currency: string
-  active: boolean
-  primaryExch: string
-  type: string
-  codes: {
-    cik: string
-    figiuid: string
-    scfigi: string
-    cfigi: string
-    figi: string
-  }
-  updated: string
-  url: string
-}
-
-interface Trade {
-  ev: string
-  sym: string
-  i: string
-  x: number
-  p: number
-  s: number
-  t: number
-  z: number
-}
+const line = draftlog.into(console)
 
 yargs(process.argv.slice(2)).command(
   '$0',
@@ -60,20 +25,15 @@ yargs(process.argv.slice(2)).command(
         alias: 'v',
         describe: 'show version',
       })
-      .option('gap', {
-        boolean: true,
-        default: true,
-        describe: 'toggle gap detection',
+      .option('volume', {
+        number: true,
+        default: 1000000,
+        describe: 'minimum volume',
       })
-      .option('gap-percent', {
+      .option('gap', {
         number: true,
         default: 0.02,
-        describe: 'gap percent threshold',
-      })
-      .option('gap-duration', {
-        number: true,
-        default: '10 seconds',
-        describe: 'gap duration threshold',
+        describe: 'gap percent',
       })
       .option('polygon-key', {
         string: true,
@@ -82,8 +42,6 @@ yargs(process.argv.slice(2)).command(
       }),
   async (argv) => {
     let tickers = new Array<Ticker>(),
-      // todo: change
-      pages = 750,
       // @ts-ignore
       line = console.draft('please wait')
 
@@ -123,7 +81,7 @@ yargs(process.argv.slice(2)).command(
     )
 
     const trades = new Map<string, Trade>(),
-      gapDurationInMs = parseDuration(argv['gap-duration'], 'ms') ?? 60e3
+      volumes = new Map<string, number>()
 
     websocket.on('message', (data) => {
       let message = JSON.parse(data.toString())[0]
@@ -168,25 +126,37 @@ yargs(process.argv.slice(2)).command(
           // set
           trades.set(next.sym, next)
 
+          // get
+          let volume = volumes.get(next.sym) ?? 0,
+            newVolume = volume + next.s
+
+          // set
+          volumes.set(next.sym, newVolume)
+
+          // did it meet the volume minimum
+          if (newVolume < argv['volume']) {
+            break
+          }
+
           // percent change since last trade
           let change = (next.p - last.p) / last.p
 
           if (
             // check fits gap duration
-            Math.abs(next.t - last.t) <= gapDurationInMs &&
+            Math.abs(next.t - last.t) <= 60e3 &&
             // check fits gap percent
-            Math.abs(change) > argv['gap-percent']
+            Math.abs(change) > argv['gap']
           ) {
             console.log(
-              `${moment().format('MM-DD-YY HH:mm:ss').padEnd(22)}${(change > 0
+              `${moment().format('MM-DD-YY HH:mm:ss').padEnd(18)}${(change > 0
                 ? chalk.green
-                : chalk.red)(`gap_${change > 0 ? 'up' : 'down'}`).padEnd(
-                20,
-              )}${`${(change > 0 ? '+' : '').concat(
-                (change * 100).toFixed(2),
-              )}%`.padEnd(10)}${next.sym.padEnd(8)}${chalk.gray(
-                `$${next.p.toLocaleString()}`,
-              )}`,
+                : chalk.red)(`gap_${change > 0 ? 'up' : 'down'}`).padEnd(20)}${(
+                (change > 0 ? '+' : '') +
+                change.toFixed(2) +
+                '%'
+              ).padEnd(8)}${next.sym.padEnd(6)}${abbv(newVolume, 0)?.padEnd(
+                8,
+              )}${`$${next.p.toLocaleString()}`}`,
             )
           }
 
@@ -195,3 +165,25 @@ yargs(process.argv.slice(2)).command(
     })
   },
 ).argv
+
+function abbv(num: number, fixed: number) {
+  if (num === null) {
+    return null
+  } // terminate early
+  if (num === 0) {
+    return '0'
+  } // terminate early
+  fixed = !fixed || fixed < 0 ? 0 : fixed // number of decimal places to show
+  var b = num.toPrecision(2).split('e'), // get power
+    k =
+      b.length === 1
+        ? 0
+        : Math.floor(Math.min(parseFloat(b[1].slice(1)), 14) / 3), // floor at decimals, ceiling at trillions
+    c =
+      k < 1
+        ? parseFloat(num.toFixed(0 + fixed))
+        : parseFloat((num / Math.pow(10, k * 3)).toFixed(1 + fixed)), // divide by power
+    d = c < 0 ? c : Math.abs(c), // enforce -0 is 0
+    e = d + ['', 'K', 'M', 'B', 'T'][k] // append power
+  return e
+}

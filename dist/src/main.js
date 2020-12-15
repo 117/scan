@@ -11,16 +11,10 @@ const got_1 = __importDefault(require("got"));
 const yargs_1 = __importDefault(require("yargs"));
 const chalk_1 = __importDefault(require("chalk"));
 const moment_timezone_1 = __importDefault(require("moment-timezone"));
-const parse_duration_1 = __importDefault(require("parse-duration"));
 // @ts-ignore
 const draftlog_1 = __importDefault(require("draftlog"));
 const ws_1 = __importDefault(require("ws"));
-const DraftLog = draftlog_1.default.into(console);
-var Alert;
-(function (Alert) {
-    Alert[Alert["GAP_UP"] = 0] = "GAP_UP";
-    Alert[Alert["GAP_DOWN"] = 1] = "GAP_DOWN";
-})(Alert || (Alert = {}));
+const line = draftlog_1.default.into(console);
 yargs_1.default(process.argv.slice(2)).command('$0', '...', (argv) => argv
     .version(package_json_1.default.version)
     .help('help', 'show help')
@@ -28,20 +22,15 @@ yargs_1.default(process.argv.slice(2)).command('$0', '...', (argv) => argv
     alias: 'v',
     describe: 'show version',
 })
-    .option('gap', {
-    boolean: true,
-    default: true,
-    describe: 'toggle gap detection',
+    .option('volume', {
+    number: true,
+    default: 1000000,
+    describe: 'minimum volume',
 })
-    .option('gap-percent', {
+    .option('gap', {
     number: true,
     default: 0.02,
-    describe: 'gap percent threshold',
-})
-    .option('gap-duration', {
-    number: true,
-    default: '10 seconds',
-    describe: 'gap duration threshold',
+    describe: 'gap percent',
 })
     .option('polygon-key', {
     string: true,
@@ -49,8 +38,6 @@ yargs_1.default(process.argv.slice(2)).command('$0', '...', (argv) => argv
     demandOption: true,
 }), async (argv) => {
     let tickers = new Array(), 
-    // todo: change
-    pages = 750, 
     // @ts-ignore
     line = console.draft('please wait');
     await got_1.default(`https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers?apiKey=${argv['polygon-key']}`).then((response) => {
@@ -73,7 +60,7 @@ yargs_1.default(process.argv.slice(2)).command('$0', '...', (argv) => argv
             console.log('auth pending');
         }
     }));
-    const trades = new Map(), gapDurationInMs = parse_duration_1.default(argv['gap-duration'], 'ms') ?? 60e3;
+    const trades = new Map(), volumes = new Map();
     websocket.on('message', (data) => {
         let message = JSON.parse(data.toString())[0];
         switch (message.ev) {
@@ -106,18 +93,47 @@ yargs_1.default(process.argv.slice(2)).command('$0', '...', (argv) => argv
                 last = trades.get(next.sym) ?? next;
                 // set
                 trades.set(next.sym, next);
+                // get
+                let volume = volumes.get(next.sym) ?? 0, newVolume = volume + next.s;
+                // set
+                volumes.set(next.sym, newVolume);
+                // did it meet the volume minimum
+                if (newVolume < argv['volume']) {
+                    break;
+                }
                 // percent change since last trade
                 let change = (next.p - last.p) / last.p;
                 if (
                 // check fits gap duration
-                Math.abs(next.t - last.t) <= gapDurationInMs &&
+                Math.abs(next.t - last.t) <= 60e3 &&
                     // check fits gap percent
-                    Math.abs(change) > argv['gap-percent']) {
-                    console.log(`${moment_timezone_1.default().format('MM-DD-YY HH:mm:ss').padEnd(22)}${(change > 0
+                    Math.abs(change) > argv['gap']) {
+                    console.log(`${moment_timezone_1.default().format('MM-DD-YY HH:mm:ss').padEnd(18)}${(change > 0
                         ? chalk_1.default.green
-                        : chalk_1.default.red)(`gap_${change > 0 ? 'up' : 'down'}`).padEnd(20)}${`${(change > 0 ? '+' : '').concat((change * 100).toFixed(2))}%`.padEnd(10)}${next.sym.padEnd(8)}${chalk_1.default.gray(`$${next.p.toLocaleString()}`)}`);
+                        : chalk_1.default.red)(`gap_${change > 0 ? 'up' : 'down'}`).padEnd(20)}${((change > 0 ? '+' : '') +
+                        change.toFixed(2) +
+                        '%').padEnd(8)}${next.sym.padEnd(6)}${abbv(newVolume, 0)?.padEnd(8)}${`$${next.p.toLocaleString()}`}`);
                 }
                 break;
         }
     });
 }).argv;
+function abbv(num, fixed) {
+    if (num === null) {
+        return null;
+    } // terminate early
+    if (num === 0) {
+        return '0';
+    } // terminate early
+    fixed = !fixed || fixed < 0 ? 0 : fixed; // number of decimal places to show
+    var b = num.toPrecision(2).split('e'), // get power
+    k = b.length === 1
+        ? 0
+        : Math.floor(Math.min(parseFloat(b[1].slice(1)), 14) / 3), // floor at decimals, ceiling at trillions
+    c = k < 1
+        ? parseFloat(num.toFixed(0 + fixed))
+        : parseFloat((num / Math.pow(10, k * 3)).toFixed(1 + fixed)), // divide by power
+    d = c < 0 ? c : Math.abs(c), // enforce -0 is 0
+    e = d + ['', 'K', 'M', 'B', 'T'][k]; // append power
+    return e;
+}
