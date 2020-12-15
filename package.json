@@ -1,0 +1,33 @@
+{
+  "name": "scan",
+  "version": "0.0.1",
+  "description": "nothing yet",
+  "bin": {
+    "scan": "dist/src/main.js"
+  },
+  "scripts": {
+    "build": "npm run clean && tsc && ./shebang.sh",
+    "clean": "npm i && rimraf dist"
+  },
+  "author": "117",
+  "license": "ISC",
+  "dependencies": {
+    "chalk": "^4.1.0",
+    "decimal.js": "^10.2.1",
+    "draftlog": "^1.0.12",
+    "got": "^11.8.1",
+    "lodash": "^4.17.20",
+    "moment-timezone": "^0.5.32",
+    "parse-duration": "^0.4.4",
+    "ws": "^7.4.1",
+    "yargs": "^16.2.0"
+  },
+  "devDependencies": {
+    "@types/got": "^9.6.11",
+    "@types/lodash": "^4.14.165",
+    "@types/node": "^14.14.12",
+    "@types/ws": "^7.4.0",
+    "@types/yargs": "^15.0.11",
+    "rimraf": "^3.0.2"
+  }
+}
