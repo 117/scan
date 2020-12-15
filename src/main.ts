@@ -178,13 +178,15 @@ yargs(process.argv.slice(2)).command(
             Math.abs(change) > argv['gap-percent']
           ) {
             console.log(
-              moment().format('MM-DD-YY HH:mm:ss').padEnd(22),
-              (change > 0 ? chalk.green : chalk.red)(
-                `gap_${change > 0 ? 'up' : 'down'}`,
-              ).padEnd(10),
-              `${(change * 100).toFixed(2)}%`.padEnd(8),
-              next.sym.padEnd(8),
-              `$${chalk.gray(next.p.toLocaleString())}`,
+              `${moment().format('MM-DD-YY HH:mm:ss').padEnd(22)}${(change > 0
+                ? chalk.green
+                : chalk.red)(`gap_${change > 0 ? 'up' : 'down'}`).padEnd(
+                20,
+              )}${`${(change > 0 ? '+' : '').concat(
+                (change * 100).toFixed(2),
+              )}%`.padEnd(10)}${next.sym.padEnd(8)}${chalk.gray(
+                `$${next.p.toLocaleString()}`,
+              )}`,
             )
           }
 

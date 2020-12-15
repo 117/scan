@@ -113,7 +113,9 @@ yargs_1.default(process.argv.slice(2)).command('$0', '...', (argv) => argv
                 Math.abs(next.t - last.t) <= gapDurationInMs &&
                     // check fits gap percent
                     Math.abs(change) > argv['gap-percent']) {
-                    console.log(moment_timezone_1.default().format('MM-DD-YY HH:mm:ss').padEnd(22), (change > 0 ? chalk_1.default.green : chalk_1.default.red)(`gap_${change > 0 ? 'up' : 'down'}`).padEnd(10), `${(change * 100).toFixed(2)}%`.padEnd(8), next.sym.padEnd(8), `$${chalk_1.default.gray(next.p.toLocaleString())}`);
+                    console.log(`${moment_timezone_1.default().format('MM-DD-YY HH:mm:ss').padEnd(22)}${(change > 0
+                        ? chalk_1.default.green
+                        : chalk_1.default.red)(`gap_${change > 0 ? 'up' : 'down'}`).padEnd(20)}${`${(change > 0 ? '+' : '').concat((change * 100).toFixed(2))}%`.padEnd(10)}${next.sym.padEnd(8)}${chalk_1.default.gray(`$${next.p.toLocaleString()}`)}`);
                 }
                 break;
         }
