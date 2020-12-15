@@ -83,14 +83,14 @@ yargs(process.argv.slice(2)).command(
   async (argv) => {
     let tickers = new Array<Ticker>(),
       // todo: change
-      pages = 300,
+      pages = 750,
       // @ts-ignore
       line = console.draft('please wait')
 
     await Promise.allSettled(
       [...Array(pages + 1).keys()].slice(1).map((_, page) =>
         got(
-          `https://api.polygon.io/v2/reference/tickers?sort=ticker&perpage=50&active=true&page=${page}&apiKey=${argv['polygon-key']}`,
+          `https://api.polygon.io/v2/reference/tickers?sort=ticker&locale=us&perpage=50&market=stocks&active=true&page=${page}&apiKey=${argv['polygon-key']}`,
         ).then((response) => {
           tickers.push(...JSON.parse(response.body)['tickers']),
             line(`got ${tickers.length} tickers`)
