@@ -50,7 +50,7 @@ yargs_1.default(process.argv.slice(2)).command('$0', '...', (argv) => argv
 }), async (argv) => {
     let tickers = new Array(), 
     // todo: change
-    pages = 200, 
+    pages = 300, 
     // @ts-ignore
     line = console.draft('please wait');
     await Promise.allSettled([...Array(pages + 1).keys()].slice(1).map((_, page) => got_1.default(`https://api.polygon.io/v2/reference/tickers?sort=ticker&perpage=50&active=true&page=${page}&apiKey=${argv['polygon-key']}`).then((response) => {

@@ -83,7 +83,7 @@ yargs(process.argv.slice(2)).command(
   async (argv) => {
     let tickers = new Array<Ticker>(),
       // todo: change
-      pages = 200,
+      pages = 300,
       // @ts-ignore
       line = console.draft('please wait')
 
