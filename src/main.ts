@@ -1,18 +1,15 @@
 import _ from 'lodash'
 import pkg from '../package.json'
-import got from 'got'
+import math from './math.js'
 import yargs from 'yargs'
 import chalk from 'chalk'
 import moment from 'moment-timezone'
 import parseDuration from 'parse-duration'
-// @ts-ignore
-import draftlog from 'draftlog'
-import WebSocket from 'ws'
+import prettyTable from '@master-chief/pretty-table'
 
-import { Trade } from './trade'
-import { Ticker } from './ticker'
-
-const line = draftlog.into(console)
+import { Client as PolygonClient } from './polygon/client.js'
+import { AlpacaClient } from '@master-chief/alpaca'
+import { Trade } from './polygon/trade'
 
 yargs(process.argv.slice(2)).command(
   '$0',
@@ -23,167 +20,111 @@ yargs(process.argv.slice(2)).command(
       .help('help', 'show help')
       .option('version', {
         alias: 'v',
-        describe: 'show version',
       })
       .option('volume', {
         number: true,
-        default: 1000000,
-        describe: 'minimum volume',
+        default: 50000,
       })
-      .option('gap', {
+      .option('change', {
         number: true,
-        default: 0.02,
-        describe: 'gap percent',
+        default: 4,
+      })
+      .option('alpaca-key', {
+        string: true,
+        demandOption: true,
+      })
+      .option('alpaca-secret', {
+        string: true,
+        demandOption: true,
       })
       .option('polygon-key', {
         string: true,
-        describe: 'polygon API key',
         demandOption: true,
       }),
   async (argv) => {
-    let tickers = new Array<Ticker>(),
-      // @ts-ignore
-      line = console.draft('please wait')
-
-    await got(
-      `https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers?apiKey=${argv['polygon-key']}`,
-    ).then((response) => {
-      tickers.push(...JSON.parse(response.body)['tickers'])
-      line(`got ${tickers.length} tickers`)
+    // build the alpaca client
+    const alpaca = new AlpacaClient({
+      credentials: {
+        key: argv['alpaca-key'],
+        secret: argv['alpaca-secret'],
+      },
+      rate_limit: true,
     })
 
-    // filter out shit-ass tickers
-    let symbols = tickers
-      .map((ticker) => ticker.ticker)
-      .filter(
-        (symbol) =>
-          symbol.length < 5 && !symbol.includes('.') && !symbol.includes('-'),
-      )
+    // check if alpaca is authenticated
+    if (!(await alpaca.isAuthenticated())) {
+      throw new Error('not authenticated with alpaca')
+    }
 
-    console.log(`got ${symbols.length} symbols`)
-    console.log('connecting to websocket')
+    // build the polygon client
+    const polygon = new PolygonClient({ key: argv['polygon-key'] })
 
-    const websocket = new WebSocket('wss://socket.polygon.io/stocks')
+    // check if polygon is authenticated
+    if (!(await polygon.authenticated())) {
+      throw new Error('not authenticated with polygon')
+    }
 
-    console.log('done')
-
-    websocket.on('open', () =>
-      websocket.send(
-        JSON.stringify({ action: 'auth', params: argv['polygon-key'] }),
-        (error) => {
-          if (error) {
-            throw error
-          } else {
-            console.log('auth pending')
-          }
-        },
-      ),
+    // fetch assets for the day
+    let assets = (await alpaca.getAssets({ status: 'active' })).filter(
+      (asset) =>
+        // do we care about tradeable stocks
+        asset.tradable == true &&
+        // do we care about anything more than n chars
+        asset.symbol.length <= 4 &&
+        // do we care about different classes of shares
+        asset.symbol.match(/^[A-Z]+$/),
     )
 
-    const trades = new Map<string, Trade>(),
-      volumes = new Map<string, number>()
+    console.log(`got ${assets.length.toLocaleString()} assets`)
 
-    websocket.on('message', (data) => {
-      let message = JSON.parse(data.toString())[0]
+    // subscribe to the channels
+    await polygon.websocket
+      .subscribe(assets.map((asset) => `T.${asset.symbol}`))
+      .then(() => console.log(`subscribed to channels`))
+      .catch((error) => console.log(error))
 
-      switch (message.ev) {
-        case 'status':
-          switch (message.status) {
-            case 'auth_success':
-              console.log('success')
+    // create trade cache
+    const cache = new Map<string, Trade[]>()
 
-              let total = 0,
-                // @ts-ignore
-                line = console.draft()
+    // listen for events
+    polygon.websocket.on('trade', (event) => {
+      // get and filter the trades
+      let trades = (cache.get(event.sym) ?? [])
+          .concat(event)
+          .filter((trade) => Date.now() - trade.t <= 60000),
+        change = math.change({
+          from: trades[0].p,
+          to: trades[trades.length - 1].p,
+        })
 
-              _.chunk(symbols, 300).forEach((chunk) =>
-                websocket.send(
-                  JSON.stringify({
-                    action: 'subscribe',
-                    params: chunk.map((symbol) => `T.${symbol}`).join(','),
-                  }),
-                  (error) => {
-                    if (error) {
-                      throw error
-                    } else {
-                      total += chunk.length
-                      line(`subscribed to ${total} channels`)
-                    }
-                  },
-                ),
-              )
+      // does change exceed threshold
+      if (change >= argv.change) {
+        let volume = trades.map((trade) => trade.s).reduce((a, b) => a + b)
+        // does volume exceed threshold
+        if (volume >= argv.volume) {
+          // print alert
+          console.log(
+            `${moment().format('MM-DD-YYYY HH:mm:ss')}\t ${
+              event.sym
+            } ${event.p.toFixed(2)} ${tiny(volume, 0)} gap_up`,
+          )
 
-              break
-          }
-
-          break
-        case 'T':
-          // new trade
-          let next = message as Trade,
-            // get
-            last = trades.get(next.sym) ?? next
-
-          // set
-          trades.set(next.sym, next)
-
-          // get
-          let volume = volumes.get(next.sym) ?? 0,
-            newVolume = volume + next.s
-
-          // set
-          volumes.set(next.sym, newVolume)
-
-          // did it meet the volume minimum
-          if (newVolume < argv['volume']) {
-            break
-          }
-
-          // percent change since last trade
-          let change = (next.p - last.p) / last.p
-
-          if (
-            // check fits gap duration
-            Math.abs(next.t - last.t) <= 60e3 &&
-            // check fits gap percent
-            Math.abs(change) > argv['gap']
-          ) {
-            console.log(
-              `${moment().format('MM-DD-YY HH:mm:ss').padEnd(18)}${(change > 0
-                ? chalk.green
-                : chalk.red)(`gap_${change > 0 ? 'up' : 'down'}`).padEnd(20)}${(
-                (change > 0 ? '+' : '') +
-                change.toFixed(2) +
-                '%'
-              ).padEnd(8)}${next.sym.padEnd(6)}${abbv(newVolume, 0)?.padEnd(
-                8,
-              )}${`$${next.p.toLocaleString()}`}`,
-            )
-          }
-
-          break
+          // wipe the trades
+          trades = [].concat(event)
+        }
       }
+
+      cache.set(event.sym, trades)
     })
   },
 ).argv
 
-function abbv(num: number, fixed: number) {
-  if (num === null) {
-    return null
-  } // terminate early
-  if (num === 0) {
-    return '0'
-  } // terminate early
-  fixed = !fixed || fixed < 0 ? 0 : fixed // number of decimal places to show
-  var b = num.toPrecision(2).split('e'), // get power
-    k =
-      b.length === 1
-        ? 0
-        : Math.floor(Math.min(parseFloat(b[1].slice(1)), 14) / 3), // floor at decimals, ceiling at trillions
-    c =
-      k < 1
-        ? parseFloat(num.toFixed(0 + fixed))
-        : parseFloat((num / Math.pow(10, k * 3)).toFixed(1 + fixed)), // divide by power
-    d = c < 0 ? c : Math.abs(c), // enforce -0 is 0
-    e = d + ['', 'K', 'M', 'B', 'T'][k] // append power
-  return e
+function tiny(value: number, places: number): string {
+  let level = 0
+
+  while (value >= 1000) {
+    ;(value /= 1000), level++
+  }
+
+  return value.toFixed(places).concat(['', 'K', 'M', 'B', 'T'][level] ?? 'ERR')
 }

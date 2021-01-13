@@ -1,6 +1,6 @@
 {
   "name": "scan",
-  "version": "0.1.0",
+  "version": "0.3.0",
   "description": "nothing yet",
   "bin": {
     "scan": "dist/src/main.js"
@@ -12,6 +12,9 @@
   "author": "117",
   "license": "ISC",
   "dependencies": {
+    "@master-chief/alpaca": "^3.6.3",
+    "@master-chief/pretty-table": "^1.2.3",
+    "async-mutex": "^0.2.6",
     "chalk": "^4.1.0",
     "decimal.js": "^10.2.1",
     "draftlog": "^1.0.12",
